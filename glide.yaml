@@ -1,0 +1,6 @@
+package: .
+import:
+- package: github.com/docker/docker/client
+  version: v1.13.1
+- package: github.com/docker/distribution/reference
+  version: v2.6.2
