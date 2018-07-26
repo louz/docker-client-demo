@@ -19,11 +19,16 @@ type ImageLoadResult struct {
 	Stream string	`json:"stream"`
 }
 
-func (r *ImageLoadResult) ImageId() string {
+func (r *ImageLoadResult) TagAndImageId() (string, string) {
 	// eg. 要从{"stream":"Loaded image ID: sha256:4289425e7917e771cfbb0065616586e17789bb23008e01975b709deed0438106\n"}
 	// 解析出 sha256:4289425e7917e771cfbb0065616586e17789bb23008e01975b709deed0438106
 	firstLine := strings.Split(r.Stream, "\n")[0]
-	return strings.Split(firstLine, ": ")[1]
+	tokens := strings.Split(firstLine, ": ")
+	if strings.Contains(tokens[0], "ID") {
+		return "", tokens[1]
+	} else {
+		return tokens[1], ""
+	}
 }
 
 func main() {
@@ -63,13 +68,21 @@ func main() {
 	loadResultString := bs.String()
 	fmt.Println(loadResultString)
 
-	imageId := parseImageIdFromLoadResult(loadResultString)
+	originTag, imageId := parseTagAndImageIdFromLoadResult(loadResultString)
 
 	// 3. 打tag
-	err = cli.ImageTag(context.Background(), imageId, tag)
+	if originTag != "" {
+		err = cli.ImageTag(context.Background(), originTag, tag)
+		defer imageRemove(cli, originTag)
+	} else {
+		err = cli.ImageTag(context.Background(), imageId, tag)
+	}
+
 	if err != nil {
 		panic(err)
 	}
+
+	defer imageRemove(cli, tag)
 
 	// 4. push image
 	res, err := cli.ImagePush(context.Background(), tag, types.ImagePushOptions{All: true,
@@ -84,11 +97,15 @@ func main() {
 	io.Copy(os.Stdout, res)
 
 	// 5. remove image
+	//imageRemove(cli, tag)
+	//imageRemove(cli, imageId)
+}
+
+func imageRemove(cli *client.Client, tag string) {
 	rmResult, err := cli.ImageRemove(context.Background(), tag, types.ImageRemoveOptions{})
 	if err != nil {
 		panic(err)
 	}
-
 	fmt.Println(rmResult)
 }
 
@@ -106,10 +123,10 @@ func parseFilePathAndTagArgs() (string, string) {
 	return *filePath, *tag
 }
 
-func parseImageIdFromLoadResult(loadResultString string) string {
+func parseTagAndImageIdFromLoadResult(loadResultString string) (string, string) {
 	s := strings.Split(loadResultString, "\n")
 	var loadResult ImageLoadResult
 	json.Unmarshal([]byte(s[len(s)-2]), &loadResult)
 
-	return loadResult.ImageId()
+	return loadResult.TagAndImageId()
 }
